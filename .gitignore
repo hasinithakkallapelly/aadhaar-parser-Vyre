@@ -1,0 +1,22 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments -- NEVER commit these.
+# (The original repo had an entire venv, including compiled numpy/cv2
+# binaries and .dylib files, committed to git. Don't repeat that.)
+venv/
+env/
+aadhar/
+*.egg-info/
+
+# OS junk
+.DS_Store
+
+# Generated at runtime
+uploads/
+output/
+images/_processed_temp.jpg
