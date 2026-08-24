@@ -1,126 +1,105 @@
 import os
-import re
-import shutil
 
-from dotenv import load_dotenv
-load_dotenv()
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
-from fastapi import FastAPI, Request, UploadFile, File
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
-import mysql.connector
-
-from parser.aadhaar_parser import extract_text, parse_aadhaar_data, insert_into_database
+from parser.aadhaar_parser import InvalidImageError, extract_text_from_bytes, parse_aadhaar_data
 from parser.document_validator import validate_document_type
-
-app = FastAPI()
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
-
-UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+from parser.field_validation import mask_aadhaar, validate_fields
+from storage import AadhaarStore
 
 
-def _get_db_connection():
-    """Reads DB credentials from environment variables -- see .env.example."""
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        user=os.getenv("DB_USER", "root"),
-        password=os.getenv("DB_PASSWORD"),
-        database=os.getenv("DB_NAME", "aadhaar_db"),
-    )
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", 5 * 1024 * 1024))
+
+app = FastAPI(title="Aadhaar OCR Prototype", version="2.0.0")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+def _store():
+    return AadhaarStore()
 
 
-@app.post("/upload")
-async def upload_image(file: UploadFile = File(...)):
-    file_location = os.path.join(UPLOAD_FOLDER, file.filename)
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+def process_image(image_bytes: bytes) -> dict:
+    try:
+        text = extract_text_from_bytes(image_bytes)
+    except InvalidImageError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("OCR processing failed") from exc
 
-    text = extract_text(file_location)
-
-    # Basic document-type check BEFORE full field extraction -- catches
-    # wrong document types (PAN card, voter ID, etc.) or unreadable
-    # uploads early, with a clear reason, instead of silently producing
-    # garbage parsed data from a non-Aadhaar document.
-    validation = validate_document_type(text)
-    if not validation.is_valid_aadhaar:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "message": "Uploaded document does not appear to be an Aadhaar card.",
-                "reasons": validation.reasons,
-                "likely_document_type": validation.likely_document_type,
-            },
-        )
+    document = validate_document_type(text)
+    if not document.is_valid_aadhaar:
+        raise ValueError("Uploaded document does not appear to be an Aadhaar card")
 
     data = parse_aadhaar_data(text)
+    fields = validate_fields(data)
+    if not fields.valid:
+        raise ValueError("; ".join(fields.errors))
+    return data
 
-    if not data['aadhaar_number']:
-        # BUG FIX: the original code returned `{"..."}`, which is a Python
-        # SET literal, not a dict -- FastAPI/JSON cannot serialize a set,
-        # so this line would raise a 500 error instead of the intended 400
-        # response. Confirmed by running json.dumps() on the original
-        # literal directly. Fixed by using an actual dict below.
-        return JSONResponse(status_code=400, content={"message": "Aadhaar number not found."})
 
-    cursor = None
-    conn = None
+async def _read_upload(file: UploadFile) -> bytes:
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=415, detail="Only JPEG and PNG images are supported")
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    await file.close()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Uploaded image exceeds the size limit")
+    return content
+
+
+async def _extract(file: UploadFile):
+    content = await _read_upload(file)
     try:
-        conn = _get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM aadhaar_data WHERE aadhaar_number = %s", (data['aadhaar_number'],))
-        result = cursor.fetchone()
-        if result:
-            # Same set-vs-dict bug existed here too.
-            return {"message": f"Welcome back, {result[0]}! Thanks for joining us."}
-        else:
-            insert_into_database(data)
-            return {"message": "Aadhaar data saved successfully.", "data": data}
-    except mysql.connector.Error as err:
-        return JSONResponse(status_code=500, content={"message": f"Database error: {err}"})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+        return await run_in_threadpool(process_image, content)
+    except InvalidImageError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _public_fields(data: dict):
+    return {
+        "aadhaar_masked": mask_aadhaar(data["aadhaar_number"]),
+        "name": data["name"],
+        "dob": data["dob"],
+        "gender": data.get("gender"),
+    }
+
+
+@app.get("/")
+def root():
+    return {"name": "Aadhaar OCR Prototype", "docs": "/docs"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/upload", status_code=201)
+async def upload_image(file: UploadFile = File(...)):
+    data = await _extract(file)
+    store = _store()
+    existing = store.find(data["aadhaar_number"])
+    if existing:
+        return {"status": "existing", "data": _public_fields(data)}
+    try:
+        created = store.create(data)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Could not save the parsed record") from exc
+    return {"status": "created" if created else "existing", "data": _public_fields(data)}
 
 
 @app.post("/recognise")
 async def recognise_image(file: UploadFile = File(...)):
-    file_location = os.path.join(UPLOAD_FOLDER, file.filename)
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    text = extract_text(file_location)
-    match = re.search(r"\d{4}\s\d{4}\s\d{4}|\d{12}", text)
-    if not match:
-        return JSONResponse(status_code=400, content={"message": "Aadhaar number not detected."})
-
-    aadhaar_number = match.group().replace(" ", "")
-
-    cursor = None
-    conn = None
-    try:
-        conn = _get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM aadhaar_data WHERE aadhaar_number = %s", (aadhaar_number,))
-        result = cursor.fetchone()
-        if result:
-            return {"message": f"Welcome back, {result[0]}! Thanks for joining us."}
-        else:
-            return {"message": "You are a new user. Please sign in."}
-    except mysql.connector.Error as err:
-        return JSONResponse(status_code=500, content={"message": f"Database error: {err}"})
-    finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+    data = await _extract(file)
+    existing = _store().find(data["aadhaar_number"])
+    return {
+        "status": "existing" if existing else "new",
+        "data": _public_fields(data),
+    }
