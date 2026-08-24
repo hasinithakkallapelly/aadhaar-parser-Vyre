@@ -1,22 +1,13 @@
-# Environment / secrets
-.env
-
-# Python
 __pycache__/
-*.pyc
-
-# Virtual environments -- NEVER commit these.
-# (The original repo had an entire venv, including compiled numpy/cv2
-# binaries and .dylib files, committed to git. Don't repeat that.)
+*.py[cod]
+.pytest_cache/
+.venv/
 venv/
-env/
-aadhar/
-*.egg-info/
-
-# OS junk
+.env
 .DS_Store
-
-# Generated at runtime
+.local_hash_key
+data/
 uploads/
-output/
 images/_processed_temp.jpg
+output/
+
