@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from parser.aadhaar_parser import InvalidImageError, extract_text_from_bytes, parse_aadhaar_data
 from parser.document_validator import validate_document_type
@@ -9,10 +12,13 @@ from parser.field_validation import mask_aadhaar, validate_fields
 from storage import AadhaarStore
 
 
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", 5 * 1024 * 1024))
 
-app = FastAPI(title="Aadhaar OCR Prototype", version="2.0.0")
+app = FastAPI(title="Aadhaar OCR Prototype", version="2.1.0")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _store():
@@ -71,17 +77,17 @@ def _public_fields(data: dict):
     }
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def root():
-    return {"name": "Aadhaar OCR Prototype", "docs": "/docs"}
+    return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/health")
+@app.get("/health", tags=["system"])
 def health():
     return {"status": "ok"}
 
 
-@app.post("/upload", status_code=201)
+@app.post("/upload", status_code=201, tags=["documents"])
 async def upload_image(file: UploadFile = File(...)):
     data = await _extract(file)
     store = _store()
@@ -95,7 +101,7 @@ async def upload_image(file: UploadFile = File(...)):
     return {"status": "created" if created else "existing", "data": _public_fields(data)}
 
 
-@app.post("/recognise")
+@app.post("/recognise", tags=["documents"])
 async def recognise_image(file: UploadFile = File(...)):
     data = await _extract(file)
     existing = _store().find(data["aadhaar_number"])
@@ -103,3 +109,4 @@ async def recognise_image(file: UploadFile = File(...)):
         "status": "existing" if existing else "new",
         "data": _public_fields(data),
     }
+

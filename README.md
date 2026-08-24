@@ -1,11 +1,13 @@
 # Aadhaar OCR and Record-Matching Prototype
 
-A local document-processing API that extracts structured fields from an Aadhaar image, validates the OCR result, and performs privacy-conscious returning-record lookup.
+A local document-processing web application that extracts structured fields from an Aadhaar image, validates the OCR result, and performs privacy-conscious returning-record lookup.
 
 The application uses Tesseract for OCR, OpenCV for image preprocessing, FastAPI for the API, and SQLite for local storage.
 
 ## Features
 
+- Responsive drag-and-drop web interface with image preview
+- Clear loading, validation, and record-status feedback
 - Accepts JPEG and PNG uploads up to 5 MB
 - Processes images in memory without retaining uploaded documents
 - Rejects unsupported, empty, oversized, and invalid files
@@ -82,7 +84,11 @@ python -m pip install -r requirements-dev.txt
 uvicorn api:app --reload
 ```
 
-Open the interactive API page:
+Open the web interface:
+
+http://127.0.0.1:8000
+
+The interactive API documentation remains available at:
 
 http://127.0.0.1:8000/docs
 
@@ -169,7 +175,10 @@ Place the generated value in `APP_HASH_KEY`.
 ## Project structure
 
 ```text
-api.py                              FastAPI endpoints and upload controls
+api.py                              FastAPI endpoints, upload controls, and UI serving
+static/index.html                    Document upload interface
+static/styles.css                    Responsive visual design
+static/app.js                        Upload, preview, and result interactions
 main.py                             Single-image command-line entry point
 storage.py                          HMAC identifiers and SQLite operations
 parser/aadhaar_parser.py            In-memory preprocessing, OCR, and extraction

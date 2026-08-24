@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Local OCR and privacy-conscious record matching for Aadhaar documents.">
+  <title>Aadhaar Document Parser</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Aadhaar Document Parser home">
+        <span class="brand-mark" aria-hidden="true">ID</span>
+        <span>
+          <strong>Document Parser</strong>
+          <small>Local OCR prototype</small>
+        </span>
+      </a>
+      <a class="docs-link" href="/docs">API docs <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <section class="hero">
+      <p class="eyebrow">Privacy-conscious document processing</p>
+      <h1>Extract and verify Aadhaar document details.</h1>
+      <p class="hero-copy">Upload a clear JPEG or PNG. The image is processed in memory, the number is masked, and the original file is not retained.</p>
+    </section>
+
+    <section class="workspace" aria-label="Document processing workspace">
+      <div class="upload-panel">
+        <div id="dropZone" class="drop-zone" tabindex="0" role="button" aria-describedby="fileRules">
+          <input id="fileInput" type="file" accept="image/jpeg,image/png" hidden>
+          <div id="emptyState" class="empty-state">
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <h2>Drop a document here</h2>
+            <p>or <span class="browse-link">browse from your computer</span></p>
+            <small id="fileRules">JPEG or PNG · Maximum 5 MB</small>
+          </div>
+          <div id="previewState" class="preview-state" hidden>
+            <img id="previewImage" alt="Selected document preview">
+            <div class="file-meta">
+              <strong id="fileName"></strong>
+              <span id="fileSize"></span>
+            </div>
+            <button id="removeFile" class="icon-button" type="button" aria-label="Remove selected file">×</button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="saveButton" class="button button-primary" type="button" disabled>
+            <span>Parse and save</span>
+          </button>
+          <button id="checkButton" class="button button-secondary" type="button" disabled>
+            Check existing record
+          </button>
+        </div>
+
+        <div class="privacy-note">
+          <span aria-hidden="true">◈</span>
+          <p><strong>Local by design.</strong> Full Aadhaar numbers and uploaded images are not stored.</p>
+        </div>
+      </div>
+
+      <aside class="result-panel" aria-live="polite">
+        <div id="resultEmpty" class="result-empty">
+          <span class="result-placeholder" aria-hidden="true">⌁</span>
+          <h2>Results will appear here</h2>
+          <p>Select an image and choose an action to begin.</p>
+        </div>
+
+        <div id="loadingState" class="loading-state" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <h2>Processing document</h2>
+          <p>Running image cleanup, OCR, and validation…</p>
+        </div>
+
+        <div id="errorState" class="message-state error-state" hidden>
+          <span class="message-icon" aria-hidden="true">!</span>
+          <h2>Could not process the document</h2>
+          <p id="errorMessage"></p>
+          <button id="tryAgainButton" class="text-button" type="button">Try another image</button>
+        </div>
+
+        <div id="successState" class="success-state" hidden>
+          <div class="result-heading">
+            <div>
+              <p class="eyebrow">Validated output</p>
+              <h2>Extracted details</h2>
+            </div>
+            <span id="statusBadge" class="status-badge"></span>
+          </div>
+
+          <dl class="details-list">
+            <div><dt>Name</dt><dd id="resultName"></dd></div>
+            <div><dt>Date of birth</dt><dd id="resultDob"></dd></div>
+            <div><dt>Gender</dt><dd id="resultGender"></dd></div>
+            <div><dt>Aadhaar</dt><dd id="resultAadhaar" class="mono"></dd></div>
+          </dl>
+
+          <button id="processAnotherButton" class="button button-secondary full-width" type="button">Process another document</button>
+        </div>
+      </aside>
+    </section>
+
+    <footer>
+      <p>OCR and record-matching prototype · Not official UIDAI verification</p>
+    </footer>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
+
